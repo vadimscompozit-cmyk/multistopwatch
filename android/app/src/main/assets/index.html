@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Мультисекундомер</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<script src="vendor/xlsx.full.min.js"></script>
+</head>
+<body>
+<style>
+  :root {
+    --bg: #eef1f0;
+    --surface: #ffffff;
+    --surface-2: #f6f8f7;
+    --line: #d6dedc;
+    --line-soft: #e4eae8;
+    --ink: #101e1c;
+    --muted: #5e7270;
+    --accent: #0b7a66;
+    --accent-soft: #dcefea;
+    --accent-ink: #ffffff;
+    --paused: #b26a00;
+    --paused-soft: #f7ead6;
+    --danger: #b3261e;
+    --shadow: 0 1px 2px rgba(16, 30, 28, .06), 0 8px 24px rgba(16, 30, 28, .07);
+    --shadow-lift: 0 2px 4px rgba(11, 122, 102, .10), 0 12px 32px rgba(11, 122, 102, .14);
+
+    --ui: "Onest", "Segoe UI", system-ui, sans-serif;
+    --display: "Unbounded", "Onest", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --r: 14px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1413;
+      --surface: #131f1d;
+      --surface-2: #182624;
+      --line: #22322f;
+      --line-soft: #1c2b29;
+      --ink: #e8f0ee;
+      --muted: #90a5a2;
+      --accent: #3edcb2;
+      --accent-soft: #16332d;
+      --accent-ink: #06201a;
+      --paused: #e9a23b;
+      --paused-soft: #332617;
+      --danger: #f2857a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .32);
+      --shadow-lift: 0 2px 4px rgba(0, 0, 0, .45), 0 12px 32px rgba(62, 220, 178, .12);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0c1413;
+    --surface: #131f1d;
+    --surface-2: #182624;
+    --line: #22322f;
+    --line-soft: #1c2b29;
+    --ink: #e8f0ee;
+    --muted: #90a5a2;
+    --accent: #3edcb2;
+    --accent-soft: #16332d;
+    --accent-ink: #06201a;
+    --paused: #e9a23b;
+    --paused-soft: #332617;
+    --danger: #f2857a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .32);
+    --shadow-lift: 0 2px 4px rgba(0, 0, 0, .45), 0 12px 32px rgba(62, 220, 178, .12);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--ui);
+    font-size: 15px;
+    line-height: 1.45;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button, input, textarea { font: inherit; color: inherit; }
+  /* touch-action убирает ожидание двойного тапа: касание срабатывает сразу */
+  button, input, textarea, .link { touch-action: manipulation; }
+  button { cursor: pointer; }
+
+  /* iOS Safari масштабирует страницу при фокусе на поле мельче 16px, и после
+     этого вёрстка не совпадает с тем, куда целится палец. Держим 16px. */
+  input, textarea { font-size: 16px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  .app {
+    max-width: 720px;
+    margin: 0 auto;
+    min-height: 100vh;
+    /* dvh учитывает сворачивающуюся панель браузера: без него страница выше
+       видимой области, и низ вёрстки не совпадает с тем, что видно. */
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+
+  /* ---------------------------------------------------------------- шапка */
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding: 14px 16px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .brand {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: -.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink);
+  }
+
+  .brand .dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex: none;
+    transition: background .2s;
+  }
+  .brand .dot.live { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) {
+    .brand .dot.live { animation: none; }
+    * { transition-duration: .01ms !important; }
+  }
+
+  .session-name {
+    display: block;
+    width: 100%;
+    margin: 8px 0 2px;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    font-size: 25px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+  }
+  .session-name::placeholder { color: var(--muted); }
+
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .stats b {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  /* -------------------------------------------------------------- дорожки */
+  .lanes {
+    flex: 1;
+    padding: 12px 12px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .lane {
+    position: relative;
+    display: grid;
+    grid-template-columns: 4px 1fr;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: box-shadow .18s, border-color .18s;
+  }
+  .lane[data-state="running"] { border-color: var(--accent); box-shadow: var(--shadow-lift); }
+
+  .stripe { background: var(--line); }
+  .lane[data-state="running"] .stripe { background: var(--accent); }
+  .lane[data-state="paused"] .stripe { background: var(--paused); }
+
+  .lane-body { padding: 10px 12px 12px; min-width: 0; }
+
+  .lane-head { display: flex; align-items: center; gap: 6px; }
+
+  .lane-name {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    font-weight: 600;
+    padding: 6px 2px;
+    border-radius: 6px;
+  }
+  .lane-name:focus { background: var(--surface-2); outline: none; }
+
+  .tag {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .lane[data-state="running"] .tag { background: var(--accent-soft); color: var(--accent); }
+  .lane[data-state="paused"] .tag { background: var(--paused-soft); color: var(--paused); }
+  .lane[data-state="idle"] .tag { display: none; }
+
+  .icon-btn {
+    flex: none;
+    width: 44px; height: 44px;
+    display: grid; place-items: center;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1;
+  }
+  .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+
+  .lane-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 2px;
+    /* на совсем узких экранах кнопки уезжают под время, а не за край */
+    flex-wrap: wrap;
+  }
+
+  .time {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(30px, 9.5vw, 40px);
+    letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.05;
+  }
+  .lane[data-state="idle"] .time { color: var(--muted); }
+
+  .lane-actions { display: flex; gap: 8px; flex: none; }
+
+  .btn {
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink);
+    border-radius: 11px;
+    padding: 0 15px;
+    min-height: 46px;
+    font-weight: 600;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: transform .08s, background .15s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.warn { background: var(--paused-soft); border-color: transparent; color: var(--paused); }
+  .btn.ghost { background: transparent; }
+  .btn.danger { color: var(--danger); }
+  .btn:disabled { opacity: .4; }
+
+  .meta {
+    margin-top: 8px;
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .meta .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--accent);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .extra { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .extra .btn { min-height: 38px; font-size: 13px; padding: 0 12px; }
+
+  /* ----------------------------------------------------------------- круги */
+  .laps {
+    margin-top: 10px;
+    border-top: 1px solid var(--line-soft);
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  .lap {
+    display: grid;
+    grid-template-columns: 30px 1fr 1fr;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0 5px;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .lap:last-child { border-bottom: 0; }
+  .lap .n { color: var(--muted); }
+  .lap .total { color: var(--muted); text-align: right; }
+  .lap.best .split { color: var(--accent); font-weight: 700; }
+
+  .lap .when {
+    grid-column: 2 / -1;
+    font-size: 11.5px;
+    color: var(--muted);
+    letter-spacing: -.01em;
+  }
+
+  .lap-note {
+    grid-column: 1 / -1;
+    width: 100%;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    font-family: var(--ui);
+    color: var(--muted);
+    padding: 7px 6px;
+    margin-bottom: 2px;
+  }
+  .lap-note:focus { background: var(--surface-2); color: var(--ink); outline: none; }
+
+  /* ---------------------------------------------------------------- панель */
+  .bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: var(--bg);
+    border-top: 1px solid var(--line-soft);
+  }
+  .bar .btn { flex: 1; min-height: 50px; }
+  .bar .btn.icon-only { flex: none; width: 52px; padding: 0; font-size: 19px; }
+
+  /* --------------------------------------------------------------- баннеры */
+  .banner {
+    margin: 12px 12px 0;
+    padding: 11px 13px;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--ink);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .banner[hidden] { display: none !important; }
+  .banner.alert { background: var(--paused-soft); }
+  .banner p { margin: 0; flex: 1; min-width: 180px; }
+  .banner .link { color: var(--accent); }
+  .banner.alert .link { color: var(--paused); }
+
+  .empty {
+    margin: auto;
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .empty strong { display: block; color: var(--ink); font-size: 17px; margin-bottom: 6px; }
+
+  /* ----------------------------------------------------------------- модал */
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(6, 16, 15, .5);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .scrim[hidden] { display: none !important; }
+
+  .sheet {
+    width: 100%;
+    max-width: 720px;
+    max-height: 86vh;
+    overflow-y: auto;
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    box-shadow: var(--shadow);
+    animation: rise .22s ease-out;
+  }
+  @keyframes rise { from { transform: translateY(14px); opacity: .6; } }
+  @media (prefers-reduced-motion: reduce) { .sheet { animation: none; } }
+  @media (min-width: 560px) {
+    .scrim { align-items: center; }
+    .sheet { max-width: 460px; border-radius: 18px; }
+  }
+
+  .sheet h2 { margin: 0 0 4px; font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
+  .sheet p.sub { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
+  .sheet .stack { display: flex; flex-direction: column; gap: 8px; }
+  .sheet .stack .btn { min-height: 52px; justify-content: flex-start; text-align: left; }
+  .sheet .stack .btn small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .sheet .stack .btn span { display: block; }
+  .sheet .row { display: flex; gap: 8px; margin-top: 14px; }
+  .sheet .row .btn { flex: 1; }
+
+  .field {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface-2);
+    margin-bottom: 4px;
+  }
+
+  .arch { border-top: 1px solid var(--line-soft); padding: 11px 0; }
+  .arch:last-of-type { border-bottom: 1px solid var(--line-soft); }
+  .arch b { font-weight: 600; }
+  .arch .when { color: var(--muted); font-size: 12.5px; }
+  .arch .acts { display: flex; gap: 8px; margin-top: 8px; }
+  .arch .acts .btn { min-height: 36px; font-size: 13px; padding: 0 12px; }
+
+  .csv-out {
+    width: 100%;
+    min-height: 180px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface-2);
+    white-space: pre;
+    overflow: auto;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 50;
+    background: var(--ink);
+    color: var(--bg);
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 13.5px;
+    font-weight: 500;
+    box-shadow: var(--shadow);
+    max-width: 90vw;
+    text-align: center;
+    pointer-events: none; /* всплывашка не должна перехватывать нажатия */
+  }
+  .toast[hidden] { display: none !important; }
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><span class="dot" id="live-dot"></span>Мультисекундомер</div>
+    <input class="session-name" id="session-name" placeholder="Название сессии" aria-label="Название сессии" maxlength="80">
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="banner" id="demo-banner" hidden>
+    <p>Это пример, чтобы показать, как выглядит заполненная сессия.</p>
+    <button class="link" id="clear-demo">Очистить и начать свою</button>
+  </div>
+
+  <div class="banner alert" id="storage-warn" hidden>
+    <p>Браузер не даёт сохранять данные — прогресс не переживёт перезапуск. Отключите режим инкогнито или разрешите сайту хранить данные.</p>
+  </div>
+
+  <main class="lanes" id="lanes"></main>
+
+  <div class="empty" id="empty" hidden>
+    <strong>Пока ни одного секундомера</strong>
+    Нажмите «Секундомер», чтобы добавить первый.<br>Их можно завести сколько угодно — они идут одновременно.
+  </div>
+
+  <footer class="bar">
+    <button class="btn primary" id="add">+ Секундомер</button>
+    <button class="btn" id="export">Экспорт</button>
+    <button class="btn icon-only" id="menu" aria-label="Меню сессии">⋯</button>
+  </footer>
+</div>
+
+<div class="scrim" id="scrim" hidden><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORE_KEY = "multistopwatch.v1";
+  var MAX_ARCHIVE = 40;
+
+  // ------------------------------------------------------------ утилиты
+  function pad(n, len) { n = String(n); while (n.length < len) n = "0" + n; return n; }
+
+  /** 83500 мс -> "01:23.50", больше часа -> "1:23:45.60" */
+  function fmt(ms) {
+    if (ms < 0) ms = 0;
+    var cs = Math.floor(ms / 10) % 100;
+    var s = Math.floor(ms / 1000) % 60;
+    var m = Math.floor(ms / 60000) % 60;
+    var h = Math.floor(ms / 3600000);
+    var head = h > 0 ? h + ":" + pad(m, 2) : pad(m, 2);
+    return head + ":" + pad(s, 2) + "." + pad(cs, 2);
+  }
+
+  function fmtShort(ms) {
+    var s = Math.floor(ms / 1000) % 60;
+    var m = Math.floor(ms / 60000) % 60;
+    var h = Math.floor(ms / 3600000);
+    return (h > 0 ? h + ":" + pad(m, 2) : m) + ":" + pad(s, 2);
+  }
+
+  function clock(ts) {
+    var d = new Date(ts);
+    return pad(d.getHours(), 2) + ":" + pad(d.getMinutes(), 2) + ":" + pad(d.getSeconds(), 2);
+  }
+
+  function dateLabel(ts) {
+    var d = new Date(ts);
+    return pad(d.getDate(), 2) + "." + pad(d.getMonth() + 1, 2) + "." + d.getFullYear();
+  }
+
+  /** "08.09.2026, 15:42:07" — дата и время одной строкой */
+  function dateTime(ts, withSeconds) {
+    var t = clock(ts);
+    return dateLabel(ts) + ", " + (withSeconds === false ? t.slice(0, 5) : t);
+  }
+
+  function stamp(ts) {
+    var d = new Date(ts);
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1, 2) + "-" + pad(d.getDate(), 2) +
+      " " + pad(d.getHours(), 2) + "-" + pad(d.getMinutes(), 2);
+  }
+
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+  function $(id) { return document.getElementById(id); }
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  // ------------------------------------------------------------ состояние
+  var state = null;
+  var storageOk = true;
+  var openLaps = {};   // id -> показывать список кругов
+  var openExtra = {};  // id -> показывать доп. действия
+
+  function blankSession() {
+    return {
+      id: uid(),
+      name: "Сессия " + dateLabel(Date.now()),
+      createdAt: Date.now(),
+      demo: false,
+      timers: []
+    };
+  }
+
+  function demoSession() {
+    var now = Date.now();
+    var s = blankSession();
+    s.name = "Пример: замер линии";
+    s.demo = true;
+    s.timers = [
+      mkTimer("Станок №1", 254300, now - 254300, [
+        { t: 61200, at: now - 250000, note: "прогрев" },
+        { t: 128900, at: now - 180000, note: "" },
+        { t: 194600, at: now - 110000, note: "смена оснастки" }
+      ]),
+      mkTimer("Станок №2", 187500, now - 187500, [
+        { t: 92100, at: now - 160000, note: "" },
+        { t: 181000, at: now - 70000, note: "заминка по подаче" }
+      ]),
+      mkTimer("Упаковка", 43800, now - 43800, [])
+    ];
+    s.timers[1].startedAt = now; // один идёт — чтобы сразу было видно живое состояние
+    return s;
+  }
+
+  function mkTimer(name, accumulated, createdAt, laps) {
+    return {
+      id: uid(),
+      name: name,
+      accumulated: accumulated || 0,
+      startedAt: null,
+      createdAt: createdAt || Date.now(),
+      laps: laps || []
+    };
+  }
+
+  function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(STORE_KEY); }
+    catch (e) { storageOk = false; }
+
+    if (raw) {
+      try {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.session && Array.isArray(parsed.session.timers)) {
+          state = { session: parsed.session, archive: Array.isArray(parsed.archive) ? parsed.archive : [] };
+          return;
+        }
+      } catch (e) { /* повреждённые данные — начинаем заново */ }
+    }
+    state = { session: demoSession(), archive: [] };
+  }
+
+  var saveTimer = null;
+  function save() {
+    if (!storageOk) return;
+    if (saveTimer) return;
+    saveTimer = setTimeout(function () {
+      saveTimer = null;
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+      catch (e) { storageOk = false; $("storage-warn").hidden = false; }
+    }, 120);
+  }
+
+  function saveNow() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    if (!storageOk) return;
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { storageOk = false; }
+  }
+
+  // Время считается от отметок Date.now(), поэтому идущий секундомер
+  // продолжает идти, пока телефон выключен или вкладка закрыта.
+  function elapsed(t) {
+    return t.accumulated + (t.startedAt ? Date.now() - t.startedAt : 0);
+  }
+
+  function stateOf(t) {
+    if (t.startedAt) return "running";
+    return t.accumulated > 0 ? "paused" : "idle";
+  }
+
+  function find(id) {
+    var list = state.session.timers;
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+
+  function leaveDemo() {
+    if (!state.session.demo) return false;
+    state.session = blankSession();
+    openLaps = {}; openExtra = {};
+    return true;
+  }
+
+  // ------------------------------------------------------------- действия
+  function addTimer() {
+    leaveDemo();
+    var n = state.session.timers.length + 1;
+    var t = mkTimer("Секундомер " + n);
+    state.session.timers.push(t);
+    save();
+    render();
+    var laneEl = document.querySelector('[data-id="' + t.id + '"]');
+    if (!laneEl) return;
+    laneEl.scrollIntoView({ block: "nearest" });
+    // На телефоне клавиатуру сами не поднимаем: она сдвигает вёрстку прямо
+    // под пальцем. Имя переименовывается тапом по нему.
+    var fine = window.matchMedia && window.matchMedia("(pointer: fine)").matches;
+    if (fine) {
+      var name = laneEl.querySelector(".lane-name");
+      if (name) { name.focus(); name.select(); }
+    }
+  }
+
+  function toggle(t) {
+    if (t.startedAt) {
+      t.accumulated = elapsed(t);
+      t.startedAt = null;
+    } else {
+      t.startedAt = Date.now();
+    }
+    save();
+    render();
+  }
+
+  function lap(t) {
+    var total = elapsed(t);
+    if (total <= 0) return;
+    t.laps.push({ t: total, at: Date.now(), note: "" });
+    openLaps[t.id] = true;
+    save();
+    render();
+  }
+
+  function resetTimer(t) {
+    t.accumulated = 0;
+    t.startedAt = null;
+    t.laps = [];
+    save();
+    render();
+  }
+
+  function removeTimer(t) {
+    state.session.timers = state.session.timers.filter(function (x) { return x.id !== t.id; });
+    delete openLaps[t.id];
+    delete openExtra[t.id];
+    save();
+    render();
+  }
+
+  function duplicate(t) {
+    var copy = mkTimer(t.name + " (копия)");
+    var at = state.session.timers.indexOf(t);
+    state.session.timers.splice(at + 1, 0, copy);
+    save();
+    render();
+  }
+
+  function startAll() {
+    leaveDemo();
+    var now = Date.now();
+    state.session.timers.forEach(function (t) { if (!t.startedAt) t.startedAt = now; });
+    save();
+    render();
+  }
+
+  function pauseAll() {
+    state.session.timers.forEach(function (t) {
+      if (t.startedAt) { t.accumulated = elapsed(t); t.startedAt = null; }
+    });
+    save();
+    render();
+  }
+
+  function archiveSession() {
+    pauseAll();
+    var s = state.session;
+    if (!s.demo && s.timers.length) {
+      state.archive.unshift(JSON.parse(JSON.stringify(s)));
+      state.archive = state.archive.slice(0, MAX_ARCHIVE);
+    }
+    state.session = blankSession();
+    openLaps = {}; openExtra = {};
+    saveNow();
+    render();
+  }
+
+  // В APK страница живёт внутри WebView, и Android подкладывает объект
+  // AndroidHost: сохранение файла, «поделиться», блокировка сна, кнопка
+  // «назад». В браузере его нет — все ветки ниже это учитывают.
+  var host = (typeof AndroidHost !== "undefined") ? AndroidHost : null;
+
+  function blobToBase64(blob, done) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      var s = String(fr.result);
+      done(s.slice(s.indexOf(",") + 1));
+    };
+    fr.onerror = function () { toast("Не удалось подготовить файл"); };
+    fr.readAsDataURL(blob);
+  }
+
+  // Аппаратная кнопка «назад» сначала закрывает открытый лист, а не приложение.
+  window.__androidBack = function () {
+    if (!scrim.hidden) { closeSheet(); return true; }
+    return false;
+  };
+
+  function syncAwake() {
+    var on = anyRunning();
+    if (host) { try { host.keepAwake(on); } catch (e) {} return; }
+    if (on) keepAwake();
+  }
+
+  // Экран не гаснет, пока что-то идёт (там, где браузер это разрешает).
+  var wakeLock = null;
+  function keepAwake() {
+    if (!("wakeLock" in navigator) || wakeLock) return;
+    try {
+      navigator.wakeLock.request("screen").then(function (lock) {
+        wakeLock = lock;
+        lock.addEventListener("release", function () { wakeLock = null; });
+      }, function () {});
+    } catch (e) { /* не поддерживается — не страшно */ }
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") {
+      render();
+    } else {
+      saveNow();
+    }
+  });
+  window.addEventListener("pagehide", saveNow);
+
+  function anyRunning() {
+    return state.session.timers.some(function (t) { return !!t.startedAt; });
+  }
+
+  // -------------------------------------------------------------- отрисовка
+  var lanesBox = $("lanes");
+
+  function render() {
+    var s = state.session;
+    $("session-name").value = s.name;
+    $("demo-banner").hidden = !s.demo;
+    $("empty").hidden = s.timers.length > 0;
+
+    lanesBox.textContent = "";
+    s.timers.forEach(function (t) { lanesBox.appendChild(lane(t)); });
+
+    renderStats();
+    syncAwake();
+  }
+
+  function renderStats() {
+    var s = state.session;
+    var running = s.timers.filter(function (t) { return t.startedAt; }).length;
+    var total = s.timers.reduce(function (a, t) { return a + elapsed(t); }, 0);
+    var laps = s.timers.reduce(function (a, t) { return a + t.laps.length; }, 0);
+
+    var box = $("stats");
+    box.textContent = "";
+    box.appendChild(chip(s.timers.length, plural(s.timers.length, "секундомер", "секундомера", "секундомеров")));
+    if (running) box.appendChild(chip(running, "идёт" + (running > 1 ? "" : "")));
+    box.appendChild(chip(fmtShort(total), "суммарно"));
+    if (laps) box.appendChild(chip(laps, plural(laps, "круг", "круга", "кругов")));
+
+    $("live-dot").classList.toggle("live", running > 0);
+  }
+
+  function chip(value, label) {
+    var box = el("span");
+    box.appendChild(el("b", null, String(value)));
+    box.appendChild(document.createTextNode(" " + label));
+    return box;
+  }
+
+  function plural(n, one, few, many) {
+    var m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+    return many;
+  }
+
+  function lane(t) {
+    var st = stateOf(t);
+    var node = el("article", "lane");
+    node.dataset.id = t.id;
+    node.dataset.state = st;
+    node.appendChild(el("span", "stripe"));
+
+    var body = el("div", "lane-body");
+    node.appendChild(body);
+
+    // название + состояние + «ещё»
+    var head = el("div", "lane-head");
+    var name = el("input", "lane-name");
+    name.value = t.name;
+    name.maxLength = 60;
+    name.setAttribute("aria-label", "Название секундомера");
+    name.addEventListener("input", function () { t.name = name.value; save(); });
+    name.addEventListener("blur", function () {
+      if (!name.value.trim()) { t.name = "Без названия"; name.value = t.name; save(); }
+    });
+    head.appendChild(name);
+    head.appendChild(el("span", "tag", st === "running" ? "идёт" : "пауза"));
+
+    var more = el("button", "icon-btn", "⋯");
+    more.setAttribute("aria-label", "Ещё действия");
+    more.addEventListener("click", function () {
+      openExtra[t.id] = !openExtra[t.id];
+      render();
+    });
+    head.appendChild(more);
+    body.appendChild(head);
+
+    // время + кнопки
+    var row = el("div", "lane-row");
+    var time = el("div", "time", fmt(elapsed(t)));
+    time.dataset.time = t.id;
+    row.appendChild(time);
+
+    var actions = el("div", "lane-actions");
+    var lapBtn = el("button", "btn ghost", "Круг");
+    lapBtn.disabled = st === "idle";
+    lapBtn.addEventListener("click", function () { lap(t); });
+    actions.appendChild(lapBtn);
+
+    var runBtn = el("button", "btn " + (st === "running" ? "warn" : "primary"),
+      st === "running" ? "Пауза" : (st === "paused" ? "Дальше" : "Старт"));
+    runBtn.addEventListener("click", function () { toggle(t); });
+    actions.appendChild(runBtn);
+
+    row.appendChild(actions);
+    body.appendChild(row);
+
+    // сводка по кругам
+    var meta = el("div", "meta");
+    meta.appendChild(el("span", "num", "создан " + dateTime(t.createdAt, false)));
+    if (t.laps.length) {
+      var last = t.laps[t.laps.length - 1];
+      var prev = t.laps.length > 1 ? t.laps[t.laps.length - 2].t : 0;
+      meta.appendChild(el("span", null,
+        t.laps.length + " " + plural(t.laps.length, "круг", "круга", "кругов")));
+      var lastBox = el("span", "num", "последний " + fmt(last.t - prev));
+      meta.appendChild(lastBox);
+      var toggleLaps = el("button", "link", openLaps[t.id] ? "Свернуть" : "Показать круги");
+      toggleLaps.addEventListener("click", function () {
+        openLaps[t.id] = !openLaps[t.id];
+        render();
+      });
+      meta.appendChild(toggleLaps);
+    } else if (st !== "idle") {
+      meta.appendChild(el("span", null, "кругов пока нет"));
+    } else {
+      meta.appendChild(el("span", null, "готов к старту"));
+    }
+    body.appendChild(meta);
+
+    // доп. действия
+    if (openExtra[t.id]) {
+      var extra = el("div", "extra");
+      var reset = el("button", "btn", "Сбросить");
+      reset.addEventListener("click", function () {
+        confirmSheet("Сбросить «" + t.name + "»?",
+          "Время и круги этого секундомера будут стёрты. Остальные не тронем.",
+          "Сбросить", function () { resetTimer(t); toast("Секундомер сброшен"); });
+      });
+      extra.appendChild(reset);
+
+      var dup = el("button", "btn", "Дублировать");
+      dup.addEventListener("click", function () { duplicate(t); });
+      extra.appendChild(dup);
+
+      var del = el("button", "btn danger", "Удалить");
+      del.addEventListener("click", function () {
+        confirmSheet("Удалить «" + t.name + "»?",
+          "Секундомер и его круги исчезнут из сессии. Если данные нужны — сначала выгрузите Excel.",
+          "Удалить", function () { removeTimer(t); toast("Удалено"); });
+      });
+      extra.appendChild(del);
+      body.appendChild(extra);
+    }
+
+    // список кругов
+    if (openLaps[t.id] && t.laps.length) {
+      var laps = el("div", "laps");
+      var splits = t.laps.map(function (l, i) { return l.t - (i ? t.laps[i - 1].t : 0); });
+      var best = Math.min.apply(null, splits);
+      t.laps.forEach(function (l, i) {
+        var rowEl = el("div", "lap");
+        if (splits[i] === best && t.laps.length > 1) rowEl.className = "lap best";
+        rowEl.appendChild(el("span", "n", String(i + 1)));
+        rowEl.appendChild(el("span", "split", fmt(splits[i])));
+        rowEl.appendChild(el("span", "total", fmt(l.t)));
+        rowEl.appendChild(el("span", "when", dateTime(l.at)));
+        var note = el("input", "lap-note");
+        note.value = l.note || "";
+        note.placeholder = "комментарий к кругу";
+        note.maxLength = 120;
+        note.addEventListener("input", function () { l.note = note.value; save(); });
+        rowEl.appendChild(note);
+        laps.appendChild(rowEl);
+      });
+      body.appendChild(laps);
+    }
+
+    return node;
+  }
+
+  // Тик обновляет только цифры идущих секундомеров, без перерисовки списка.
+  var lastPaint = 0;
+  function tick(now) {
+    if (now - lastPaint > 45) {
+      lastPaint = now;
+      var running = false;
+      state.session.timers.forEach(function (t) {
+        if (!t.startedAt) return;
+        running = true;
+        var node = lanesBox.querySelector('[data-time="' + t.id + '"]');
+        if (node) node.textContent = fmt(elapsed(t));
+      });
+      if (running) renderStats();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ----------------------------------------------------------------- листы
+  var scrim = $("scrim");
+  var sheet = $("sheet");
+
+  function closeSheet() { scrim.hidden = true; sheet.textContent = ""; }
+
+  scrim.addEventListener("click", function (e) { if (e.target === scrim) closeSheet(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeSheet(); });
+
+  function openSheet(title, sub) {
+    sheet.textContent = "";
+    sheet.appendChild(el("h2", null, title));
+    if (sub) sheet.appendChild(el("p", "sub", sub));
+    scrim.hidden = false;
+    return sheet;
+  }
+
+  function sheetButton(label, hint, cls, fn) {
+    var b = el("button", "btn " + (cls || ""));
+    var wrap = el("span");
+    wrap.appendChild(el("span", null, label));
+    if (hint) wrap.appendChild(el("small", null, hint));
+    b.appendChild(wrap);
+    b.addEventListener("click", fn);
+    return b;
+  }
+
+  function confirmSheet(title, sub, action, fn) {
+    var s = openSheet(title, sub);
+    var row = el("div", "row");
+    var cancel = el("button", "btn ghost", "Отмена");
+    cancel.addEventListener("click", closeSheet);
+    var ok = el("button", "btn primary", action);
+    ok.addEventListener("click", function () { closeSheet(); fn(); });
+    row.appendChild(cancel);
+    row.appendChild(ok);
+    s.appendChild(row);
+  }
+
+  var toastTimer = null;
+  function toast(text) {
+    var box = $("toast");
+    box.textContent = text;
+    box.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { box.hidden = true; }, 2600);
+  }
+
+  // ---------------------------------------------------------------- экспорт
+  // asDates: для .xlsx отдаём настоящие Date — в Excel по ним работают
+  // сортировка и фильтры; для CSV и буфера обмена нужен готовый текст.
+  // Одна сплошная таблица: строка секундомера («итог»), под ней его круги
+  // отдельными строками, дальше следующий секундомер. Имя повторяется в
+  // каждой строке — так работают фильтр и сводные таблицы Excel.
+  function rowsFor(session, asDates) {
+    var rows = [["Секундомер", "Круг", "Время круга", "Общее время",
+      "Круг, сек", "Всего, сек", "Дата и время", "Комментарий"]];
+    var stateWord = { running: "идёт", paused: "пауза", idle: "не запускался" };
+    function when(ts) { return asDates ? new Date(ts) : dateTime(ts); }
+
+    session.timers.forEach(function (t) {
+      var total = elapsed(t);
+      rows.push([t.name, "итог", "", fmt(total), "", +(total / 1000).toFixed(2),
+        when(t.createdAt), stateWord[stateOf(t)]]);
+      t.laps.forEach(function (l, i) {
+        var split = l.t - (i ? t.laps[i - 1].t : 0);
+        rows.push([t.name, i + 1, fmt(split), fmt(l.t),
+          +(split / 1000).toFixed(2), +(l.t / 1000).toFixed(2), when(l.at), l.note || ""]);
+      });
+    });
+    return rows;
+  }
+
+  var DATE_FMT = "DD.MM.YYYY HH:MM:SS";
+
+  function markDates(ws, col, firstRow, count) {
+    for (var i = 0; i < count; i++) {
+      var cell = ws[XLSX.utils.encode_cell({ c: col, r: firstRow - 1 + i })];
+      // 'd' — дата объектом, 'n' — та же дата, свёрнутая в серийный номер
+      if (cell && (cell.t === "d" || cell.t === "n")) cell.z = DATE_FMT;
+    }
+  }
+
+  function buildWorkbook(session) {
+    if (typeof XLSX === "undefined") return null;
+    var rows = rowsFor(session, true);
+    var wb = XLSX.utils.book_new();
+
+    var ws = XLSX.utils.aoa_to_sheet([
+      [session.name],
+      ["Сессия создана " + dateTime(session.createdAt) + " · выгружено " + dateTime(Date.now())],
+      []
+    ]);
+    XLSX.utils.sheet_add_aoa(ws, rows, { origin: "A4", cellDates: true });
+    ws["!cols"] = [{ wch: 26 }, { wch: 8 }, { wch: 13 }, { wch: 13 },
+      { wch: 11 }, { wch: 11 }, { wch: 21 }, { wch: 34 }];
+    markDates(ws, 6, 5, rows.length - 1);
+    ws["!autofilter"] = {
+      ref: XLSX.utils.encode_range({ s: { c: 0, r: 3 }, e: { c: 7, r: rows.length + 2 } })
+    };
+    XLSX.utils.book_append_sheet(wb, ws, "Замеры");
+
+    return wb;
+  }
+
+  function fileBase(session) {
+    var name = (session.name || "сессия").replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 60);
+    return name + " " + stamp(Date.now());
+  }
+
+  function xlsxBlob(session) {
+    var wb = buildWorkbook(session);
+    if (!wb) return null;
+    var out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    return new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+
+  function csvText(session) {
+    var lines = [session.name, ""];
+    rowsFor(session).forEach(function (r) {
+      lines.push(r.map(function (cell) {
+        var v = String(cell == null ? "" : cell);
+        return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      }).join(";"));
+    });
+    return lines.join("\r\n");
+  }
+
+  // Возможность сохранения появляется только внутри claude.ai — снаружи
+  // пользуемся обычной ссылкой на blob.
+  var downloads = null;
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("downloads").then(function (api) { downloads = api; }, function () {});
+  }
+
+  function saveFile(filename, blob, okText) {
+    if (host) {
+      blobToBase64(blob, function (b64) {
+        var res = host.saveFile(filename, b64, blob.type || "application/octet-stream");
+        toast(res === "ok" ? okText + " — папка «Загрузки»" : res);
+      });
+      return;
+    }
+    if (downloads) {
+      downloads.save({ filename: filename, data: blob }).then(function () {
+        toast(okText);
+      }, function (err) {
+        var code = err && err.code;
+        if (code === "declined") return;
+        if (code === "rate_limited") { toast("Уже открыт другой запрос на сохранение — попробуйте ещё раз"); return; }
+        toast("Не удалось сохранить файл. Попробуйте «Скопировать таблицу».");
+      });
+      return;
+    }
+    try {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      toast(okText);
+    } catch (e) {
+      toast("Скачивание недоступно — воспользуйтесь «Скопировать таблицу»");
+    }
+  }
+
+  function canShareFiles() {
+    if (host) return true;
+    if (!navigator.canShare || !navigator.share || typeof File !== "function") return false;
+    try { return navigator.canShare({ files: [new File(["1"], "t.xlsx")] }); }
+    catch (e) { return false; }
+  }
+
+  function exportSheet(session) {
+    session = session || state.session;
+    var s = openSheet("Экспорт в Excel",
+      session.timers.length
+        ? "Одна таблица: строка секундомера, под ней его круги отдельными строками — с датой, временем и комментариями."
+        : "В сессии пока нет секундомеров.");
+
+    if (!session.timers.length) {
+      var back = el("button", "btn ghost", "Закрыть");
+      back.addEventListener("click", closeSheet);
+      s.appendChild(back);
+      return;
+    }
+
+    var stack = el("div", "stack");
+    var xlsxReady = typeof XLSX !== "undefined";
+
+    if (xlsxReady) {
+      stack.appendChild(sheetButton("Скачать .xlsx", "Файл ляжет в «Файлы» или «Загрузки» телефона", "primary", function () {
+        closeSheet();
+        saveFile(fileBase(session) + ".xlsx", xlsxBlob(session), "Файл Excel готов");
+      }));
+
+      if (canShareFiles()) {
+        stack.appendChild(sheetButton("Поделиться файлом", "Почта, мессенджер, облако — через меню телефона", "", function () {
+          var blob = xlsxBlob(session);
+          var xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+          if (host) {
+            blobToBase64(blob, function (b64) {
+              host.shareFile(fileBase(session) + ".xlsx", b64, xlsxMime);
+            });
+            closeSheet();
+            return;
+          }
+          var file = new File([blob], fileBase(session) + ".xlsx", { type: xlsxMime });
+          navigator.share({ files: [file], title: session.name }).then(closeSheet, function (err) {
+            if (err && err.name === "AbortError") return;
+            toast("Меню «Поделиться» недоступно — скачайте файл");
+          });
+        }));
+      }
+    } else {
+      s.appendChild(el("p", "sub", "Библиотека для .xlsx не загрузилась (нет сети?). Доступны CSV и копирование — Excel открывает оба."));
+      stack.appendChild(sheetButton("Скачать .csv", "Открывается в Excel и Google Таблицах", "primary", function () {
+        closeSheet();
+        var blob = new Blob(["﻿" + csvText(session)], { type: "text/csv;charset=utf-8" });
+        saveFile(fileBase(session) + ".csv", blob, "Файл CSV готов");
+      }));
+    }
+
+    stack.appendChild(sheetButton("Скопировать таблицу", "Вставляется прямо в Excel через Ctrl+V", "", function () {
+      var text = rowsFor(session).map(function (r) { return r.join("\t"); }).join("\n");
+      copyText(text);
+    }));
+
+    s.appendChild(stack);
+
+    var row = el("div", "row");
+    var close = el("button", "btn ghost", "Закрыть");
+    close.addEventListener("click", closeSheet);
+    row.appendChild(close);
+    s.appendChild(row);
+  }
+
+  function copyText(text) {
+    function fallback() {
+      var s = openSheet("Скопируйте таблицу", "Выделите текст и скопируйте, затем вставьте в Excel.");
+      var area = el("textarea", "csv-out");
+      area.value = text;
+      area.readOnly = true;
+      s.appendChild(area);
+      area.focus();
+      area.select();
+      var row = el("div", "row");
+      var close = el("button", "btn ghost", "Закрыть");
+      close.addEventListener("click", closeSheet);
+      row.appendChild(close);
+      s.appendChild(row);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        closeSheet();
+        toast("Таблица скопирована — вставьте в Excel");
+      }, fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  // ------------------------------------------------------------ меню сессии
+  function menuSheet() {
+    var s = openSheet("Сессия", state.session.name);
+    var stack = el("div", "stack");
+
+    if (anyRunning()) {
+      stack.appendChild(sheetButton("Остановить все", "Поставить на паузу каждый секундомер", "warn", function () {
+        closeSheet(); pauseAll(); toast("Все на паузе");
+      }));
+    } else if (state.session.timers.length) {
+      stack.appendChild(sheetButton("Запустить все", "Стартовать разом — одна общая точка отсчёта", "primary", function () {
+        closeSheet(); startAll();
+      }));
+    }
+
+    stack.appendChild(sheetButton("Новая сессия", "Текущая уйдёт в архив со всеми кругами", "", function () {
+      closeSheet();
+      confirmSheet("Начать новую сессию?",
+        "«" + state.session.name + "» сохранится в архиве — оттуда её можно выгрузить в Excel в любой момент.",
+        "Начать", function () { archiveSession(); toast("Новая сессия начата"); });
+    }));
+
+    stack.appendChild(sheetButton("Архив сессий",
+      state.archive.length
+        ? state.archive.length + " " + plural(state.archive.length, "сессия", "сессии", "сессий") + " в памяти телефона"
+        : "Пока пусто", "", function () { archiveSheet(); }));
+
+    s.appendChild(stack);
+
+    var note = el("p", "sub");
+    note.style.marginTop = "14px";
+    note.textContent = storageOk
+      ? "Данные лежат в памяти телефона: перезагрузка, закрытие вкладки и потеря сети им не страшны. Идущие секундомеры продолжают считать, даже пока приложение закрыто."
+      : "Внимание: браузер запретил хранение — после закрытия вкладки данные пропадут.";
+    s.appendChild(note);
+
+    var row = el("div", "row");
+    var close = el("button", "btn ghost", "Закрыть");
+    close.addEventListener("click", closeSheet);
+    row.appendChild(close);
+    s.appendChild(row);
+  }
+
+  function archiveSheet() {
+    var s = openSheet("Архив сессий", state.archive.length
+      ? "Каждую можно выгрузить в Excel или удалить."
+      : "Сюда попадают завершённые сессии — нажмите «Новая сессия», чтобы отправить текущую в архив.");
+
+    state.archive.forEach(function (session, idx) {
+      var box = el("div", "arch");
+      box.appendChild(el("b", null, session.name));
+      var total = session.timers.reduce(function (a, t) { return a + t.accumulated; }, 0);
+      var laps = session.timers.reduce(function (a, t) { return a + t.laps.length; }, 0);
+      box.appendChild(el("div", "when", dateLabel(session.createdAt) + " · " +
+        session.timers.length + " " + plural(session.timers.length, "секундомер", "секундомера", "секундомеров") +
+        " · " + laps + " " + plural(laps, "круг", "круга", "кругов") + " · " + fmtShort(total)));
+
+      var acts = el("div", "acts");
+      var exp = el("button", "btn", "Экспорт");
+      exp.addEventListener("click", function () { exportSheet(session); });
+      acts.appendChild(exp);
+
+      var del = el("button", "btn danger", "Удалить");
+      del.addEventListener("click", function () {
+        confirmSheet("Удалить «" + session.name + "» из архива?",
+          "Восстановить не получится.", "Удалить", function () {
+            state.archive.splice(idx, 1);
+            saveNow();
+            archiveSheet();
+            toast("Сессия удалена");
+          });
+      });
+      acts.appendChild(del);
+      box.appendChild(acts);
+      s.appendChild(box);
+    });
+
+    var row = el("div", "row");
+    var close = el("button", "btn ghost", "Закрыть");
+    close.addEventListener("click", closeSheet);
+    row.appendChild(close);
+    s.appendChild(row);
+  }
+
+  // ------------------------------------------------------------------ старт
+  load();
+  if (!storageOk) $("storage-warn").hidden = false;
+
+  $("session-name").addEventListener("input", function () {
+    state.session.name = this.value;
+    state.session.demo = false;
+    $("demo-banner").hidden = true;
+    save();
+  });
+  $("add").addEventListener("click", addTimer);
+  $("export").addEventListener("click", function () { exportSheet(); });
+  $("menu").addEventListener("click", menuSheet);
+  $("clear-demo").addEventListener("click", function () {
+    state.session = blankSession();
+    openLaps = {}; openExtra = {};
+    saveNow();
+    render();
+    toast("Готово — сессия чистая");
+  });
+
+  render();
+  requestAnimationFrame(tick);
+})();
+</script>
+
+</body>
+</html>

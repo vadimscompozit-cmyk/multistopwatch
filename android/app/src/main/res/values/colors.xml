@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Совпадает с фоном страницы, чтобы не было вспышки при запуске. -->
+    <color name="ground">#EEF1F0</color>
+    <color name="ic_launcher_background">#0B7A66</color>
+</resources>
