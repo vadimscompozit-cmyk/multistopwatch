@@ -34,7 +34,20 @@ jobs:
 
       - name: Собрать APK
         working-directory: android
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      # Логи сборки видны только после входа в аккаунт, а аннотации — всем.
+      # Поэтому хвост неудачной сборки выкладываем аннотацией.
+      - name: Показать ошибку сборки
+        if: failure()
+        run: |
+          MSG=$(tail -n 60 "$RUNNER_TEMP/build.log" \
+                | cut -c1-200 \
+                | sed -e 's/%/%25/g' -e 's/\r//g' \
+                | awk '{ printf "%s%%0A", $0 }')
+          echo "::error title=Gradle::$MSG"
 
       - name: Выложить APK
         uses: actions/upload-artifact@v4
